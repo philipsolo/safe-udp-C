@@ -1,0 +1,42 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/philip/Documents/csc2035-assignment2-init/rft_client.c
+fcntl.h
+-
+stdlib.h
+-
+time.h
+-
+sys/stat.h
+-
+errno.h
+-
+string.h
+-
+math.h
+-
+rft_util.h
+/home/philip/Documents/csc2035-assignment2-init/rft_util.h
+rft_client_util.h
+/home/philip/Documents/csc2035-assignment2-init/rft_client_util.h
+
+/home/philip/Documents/csc2035-assignment2-init/rft_client_util.h
+stdio.h
+-
+stdbool.h
+-
+netinet/in.h
+-
+
+/home/philip/Documents/csc2035-assignment2-init/rft_util.h
+stdbool.h
+-
+unistd.h
+-
+

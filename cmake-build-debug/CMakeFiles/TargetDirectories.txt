@@ -1,0 +1,5 @@
+/home/philip/Documents/csc2035-assignment2-init/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/philip/Documents/csc2035-assignment2-init/cmake-build-debug/CMakeFiles/csc2035-assignment2-init.dir
+/home/philip/Documents/csc2035-assignment2-init/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/philip/Documents/csc2035-assignment2-init/cmake-build-debug/CMakeFiles/client.dir
+/home/philip/Documents/csc2035-assignment2-init/cmake-build-debug/CMakeFiles/server.dir

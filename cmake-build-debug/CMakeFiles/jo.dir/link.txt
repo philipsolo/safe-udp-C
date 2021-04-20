@@ -1,0 +1,1 @@
+/usr/bin/cc -g CMakeFiles/jo.dir/rft_client.c.o -o jo 

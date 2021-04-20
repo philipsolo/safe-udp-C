@@ -1,0 +1,2 @@
+/usr/bin/ar qc libcsc2035-assignment2-init.a CMakeFiles/csc2035-assignment2-init.dir/rft_client_util.c.o
+/usr/bin/ranlib libcsc2035-assignment2-init.a
