@@ -1,1 +1,1 @@
-/usr/bin/cc -g CMakeFiles/server.dir/rft_server.c.o -o server 
+/usr/bin/cc -g CMakeFiles/server.dir/rft_server.c.o -o server  ../rft_util.c ../rft_util.h 

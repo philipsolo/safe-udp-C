@@ -51,21 +51,21 @@ void exit_cerr(int line, char* msg) {
  *    success and failure to open the socket.
  *  - Look at server code.
  */
+//TODO add messages
 int create_udp_socket(struct sockaddr_in* server, char* server_addr, int port) {
     /* Replace the following with your function implementation */ 
     int sockfd = -1;
 
-    memset(&server, 0, sizeof(struct sockaddr_in*));
-
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("socket failed");
-        exit(1);
+        return -1;
     }
 
     server->sin_family = AF_INET; // IPv4
     server->sin_addr.s_addr = inet_addr(server_addr);
     server->sin_port = htons(port);
+
 
 
     errno = ENOSYS;
@@ -81,12 +81,28 @@ int create_udp_socket(struct sockaddr_in* server, char* server_addr, int port) {
  *  - Remember to close any resource you are given if sending fails
  *  - Look at server code.
  */
+//TODO add error and success messages
 bool send_metadata(int sockfd, struct sockaddr_in* server, off_t file_size,
     char* output_file) {     
-    /* Replace the following with your function implementation */ 
+    /* Replace the following with your function implementation */
+
+
+    metadata_t * file_meta = (metadata_t *) malloc(sizeof(metadata_t));
+    file_meta->size = file_size;
+    strcpy(file_meta->name, output_file);
+
+
+    if(sendto(sockfd, file_meta, sizeof(metadata_t), 0,
+              (struct sockaddr*) server, sizeof(struct sockaddr_in)) < 0){
+        printf("Unable to send message\n");
+        return false;
+    }
+
+
+
     errno = ENOSYS;
-    exit_cerr(__LINE__, "send_metadata is not implemented");  
-    return false;
+
+    return true;
 } 
   
   
