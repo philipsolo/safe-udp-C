@@ -2,6 +2,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <sys/stat.h>
 #include "rft_util.h"
 #include "rft_client_util.h"
 
@@ -24,17 +25,17 @@
  */
 
 /* print client information messge to stdout */
-void print_cmsg(char* msg) {
+void print_cmsg(char *msg) {
     print_msg("CLIENT", msg);
 }
 
 /* print client error message to stderr */
-void print_cerr(int line, char* msg) {
+void print_cerr(int line, char *msg) {
     print_err("CLIENT", line, msg);
 }
 
 /* exit with a client error */
-void exit_cerr(int line, char* msg) {
+void exit_cerr(int line, char *msg) {
     print_cerr(line, msg);
     exit(EXIT_FAILURE);
 }
@@ -52,8 +53,8 @@ void exit_cerr(int line, char* msg) {
  *  - Look at server code.
  */
 //TODO add messages
-int create_udp_socket(struct sockaddr_in* server, char* server_addr, int port) {
-    /* Replace the following with your function implementation */ 
+int create_udp_socket(struct sockaddr_in *server, char *server_addr, int port) {
+    /* Replace the following with your function implementation */
     int sockfd = -1;
 
 
@@ -67,12 +68,11 @@ int create_udp_socket(struct sockaddr_in* server, char* server_addr, int port) {
     server->sin_port = htons(port);
 
 
-
     errno = ENOSYS;
 
     return sockfd;
- } 
-  
+}
+
 /*
  * See documentation in rft_client_util.h
  * Hints:
@@ -82,45 +82,26 @@ int create_udp_socket(struct sockaddr_in* server, char* server_addr, int port) {
  *  - Look at server code.
  */
 //TODO add error and success messages
-bool send_metadata(int sockfd, struct sockaddr_in* server, off_t file_size,
-    char* output_file) {     
+bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
+                   char *output_file) {
     /* Replace the following with your function implementation */
 
 
-    metadata_t * file_meta = (metadata_t *) malloc(sizeof(metadata_t));
+    metadata_t *file_meta = (metadata_t *) malloc(sizeof(metadata_t));
     file_meta->size = file_size;
     strcpy(file_meta->name, output_file);
 
 
-    if(sendto(sockfd, file_meta, sizeof(metadata_t), 0,
-              (struct sockaddr*) server, sizeof(struct sockaddr_in)) < 0){
+    if (sendto(sockfd, file_meta, sizeof(metadata_t), 0,
+               (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
         printf("Unable to send message\n");
         return false;
     }
 
 
-
     errno = ENOSYS;
 
     return true;
-} 
-  
-  
-/*
- * See documentation in rft_client_util.h
- * Hints:
- *  - Remember to output appropriate information messages for the user to 
- *      follow progress of the transfer
- *  - Remember in this function you can exit with an error as long as you 
- *      close open resources you are given.
- *  - Look at server code.
- */
-size_t send_file_normal(int sockfd, struct sockaddr_in* server, int infd, 
-    size_t bytes_to_read) {
-    /* Replace the following with your function implementation */ 
-    errno = ENOSYS;
-    exit_cerr(__LINE__, "send_file_normal is not implemented");  
-    return 0;
 }
 
 
@@ -133,12 +114,99 @@ size_t send_file_normal(int sockfd, struct sockaddr_in* server, int infd,
  *      close open resources you are given.
  *  - Look at server code.
  */
-size_t send_file_with_timeout(int sockfd, struct sockaddr_in* server, int infd, 
-    size_t bytes_to_read, float loss_prob) {   
-    /* Replace the following with your function implementation */ 
+size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
+                        size_t bytes_to_read) {
+
+    char payload[PAYLOAD_SIZE - 1];
+    char buff[bytes_to_read];
+
+    struct segment msg_payload;
+    segment_t ack_rec;
+    bool file_end = false;
+
+    if (read(infd, buff, bytes_to_read) > 0) {
+        int i;
+        int size = 0;
+        int sq = 0;
+
+        for (i = 0; i <= bytes_to_read; ++i) {
+            if(i == bytes_to_read){
+                file_end = true;
+            }
+
+            if (size < PAYLOAD_SIZE - 1) {
+                payload[i] = buff[i];
+                size++;
+
+
+            if (size > 0) {
+                size = 0;
+                payload[strlen(payload) - 1] = '\0';
+
+                int cs = checksum(payload, false);
+
+                //Prepare payload
+                strcpy(msg_payload.payload, payload);
+                msg_payload.checksum = cs;
+                msg_payload.last = file_end;
+                msg_payload.payload_bytes = bytes_to_read;
+                msg_payload.sq = sq;
+
+
+                sq++;
+
+                bool sending = true;
+                size_t seg_size = sizeof(segment_t);
+
+                while (sending) {
+
+                    if (sendto(sockfd, &msg_payload, sizeof(metadata_t), 0,
+                               (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
+                        printf("Unable to send message\n");
+                        return 0;
+                    }
+
+
+                    memset(&ack_rec, 0, seg_size);
+
+                    ssize_t bytes_rec = recvfrom(sockfd, &ack_rec, seg_size, 0,
+                                                 (struct sockaddr *) server, (socklen_t *) sizeof(&server));
+
+                    if (bytes_rec > 0) {
+                        printf("Received ACK");
+                        if (ack_rec.checksum == cs){
+                            sending = false;
+                        }
+                    } else printf("ERROR RECEIVING ACK");
+
+                }
+
+            }
+            }
+        }
+        printf("%s\n", payload);
+
+
+    }
+    return bytes_to_read;
+}
+
+
+/*
+ * See documentation in rft_client_util.h
+ * Hints:
+ *  - Remember to output appropriate information messages for the user to 
+ *      follow progress of the transfer
+ *  - Remember in this function you can exit with an error as long as you 
+ *      close open resources you are given.
+ *  - Look at server code.
+ */
+size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
+                              size_t bytes_to_read, float loss_prob) {
+    /* Replace the following with your function implementation */
     errno = ENOSYS;
-    exit_cerr(__LINE__, "send_file_with_timeout is not implemented");  
-    
+    exit_cerr(__LINE__, "send_file_with_timeout is not implemented");
+
     return 0;
 }
 

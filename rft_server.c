@@ -143,8 +143,9 @@ static void receive_file(int sockfd, struct sockaddr_in* client,
     metadata_t* file_inf) {
     socklen_t addr_len = (socklen_t) sizeof(struct sockaddr_in);
     segment_t data_msg;
-        
-      
+
+
+
     /* Open the output file */
     FILE* out_file = fopen(file_inf->name, "w");
     
