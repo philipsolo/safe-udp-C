@@ -89,8 +89,7 @@ bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
 
     metadata_t *file_meta = (metadata_t *) malloc(sizeof(metadata_t));
     file_meta->size = file_size;
-    strcpy(file_meta->name, output_file);
-
+    memset(file_meta->name, *output_file, file_size);
 
     if (sendto(sockfd, file_meta, sizeof(metadata_t), 0,
                (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
@@ -117,7 +116,7 @@ bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
 size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
                         size_t bytes_to_read) {
 
-    char payload[PAYLOAD_SIZE - 1];
+    char payload[PAYLOAD_SIZE];
     char buff[bytes_to_read];
 
     struct segment msg_payload;
@@ -130,64 +129,72 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
         int sq = 0;
 
         for (i = 0; i <= bytes_to_read; ++i) {
-            if(i == bytes_to_read){
+
+            if (i == bytes_to_read) {
                 file_end = true;
             }
 
-            if (size < PAYLOAD_SIZE - 1) {
-                payload[i] = buff[i];
-                size++;
+            if (file_end || PAYLOAD_SIZE - 1 == size) {
+                if (size > 0) {
+                    payload[size] = '\0';
+                    size = 0;
+
+                    printf("%s", payload);
 
 
-            if (size > 0) {
-                size = 0;
-                payload[strlen(payload) - 1] = '\0';
-
-                int cs = checksum(payload, false);
-
-                //Prepare payload
-                strcpy(msg_payload.payload, payload);
-                msg_payload.checksum = cs;
-                msg_payload.last = file_end;
-                msg_payload.payload_bytes = bytes_to_read;
-                msg_payload.sq = sq;
 
 
-                sq++;
 
-                bool sending = true;
-                size_t seg_size = sizeof(segment_t);
+                    memset(msg_payload.payload, *payload, bytes_to_read);
+                    int cs = checksum(msg_payload.payload, false);
+                    msg_payload.checksum = cs;
+                    msg_payload.last = file_end;
+                    msg_payload.payload_bytes = bytes_to_read;
+                    msg_payload.sq = sq;
 
-                while (sending) {
+                    sq++;
 
-                    if (sendto(sockfd, &msg_payload, sizeof(metadata_t), 0,
-                               (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
-                        printf("Unable to send message\n");
-                        return 0;
-                    }
+                    bool sending = true;
+                    size_t seg_size = sizeof(segment_t);
 
+                    while (sending) {
+                        printf("%s\n", payload);
 
-                    memset(&ack_rec, 0, seg_size);
-
-                    ssize_t bytes_rec = recvfrom(sockfd, &ack_rec, seg_size, 0,
-                                                 (struct sockaddr *) server, (socklen_t *) sizeof(&server));
-
-                    if (bytes_rec > 0) {
-                        printf("Received ACK");
-                        if (ack_rec.checksum == cs){
-                            sending = false;
+                        if (sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
+                                   (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
+                            printf("Unable to send message\n");
+                            return 0;
                         }
-                    } else printf("ERROR RECEIVING ACK");
+
+
+                        memset(&ack_rec, 0, seg_size);
+
+
+                        if (recvfrom(sockfd, &ack_rec, sizeof(segment_t), 0,
+                                     (struct sockaddr*)&server, (socklen_t *) sizeof(struct sockaddr_in)) < 0){
+                            printf("Couldn't receive\n");
+                            return -1;
+                        } else{
+                            printf("Received ACK");
+                            if (ack_rec.checksum == cs) {
+                                sending = false;
+                            }
+                        }
+
+
+                    }
 
                 }
 
             }
-            }
+            payload[i] = buff[i];
+            size++;
+
         }
-        printf("%s\n", payload);
-
-
     }
+    printf("%s\n", payload);
+
+
     return bytes_to_read;
 }
 
