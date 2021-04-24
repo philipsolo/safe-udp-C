@@ -89,7 +89,7 @@ bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
 
     metadata_t *file_meta = (metadata_t *) malloc(sizeof(metadata_t));
     file_meta->size = file_size;
-    memset(file_meta->name, *output_file, file_size);
+    strcpy(file_meta->name, output_file);
 
     if (sendto(sockfd, file_meta, sizeof(metadata_t), 0,
                (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
@@ -99,7 +99,7 @@ bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
 
 
     errno = ENOSYS;
-
+    free(file_meta);
     return true;
 }
 
@@ -137,22 +137,22 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
             if (file_end || PAYLOAD_SIZE - 1 == size) {
                 if (size > 0) {
                     payload[size] = '\0';
-                    size = 0;
+
 
                     printf("%s", payload);
 
 
 
+                    memset(msg_payload.payload, 0x00, size);
+                    memcpy(msg_payload.payload, &payload, PAYLOAD_SIZE);
 
-
-                    memset(msg_payload.payload, *payload, bytes_to_read);
                     int cs = checksum(msg_payload.payload, false);
                     msg_payload.checksum = cs;
                     msg_payload.last = file_end;
-                    msg_payload.payload_bytes = bytes_to_read;
+                    msg_payload.payload_bytes = size;
                     msg_payload.sq = sq;
 
-                    sq++;
+                    size = 0;
 
                     bool sending = true;
                     size_t seg_size = sizeof(segment_t);
@@ -168,21 +168,23 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
 
 
                         memset(&ack_rec, 0, seg_size);
+                        socklen_t addr_len = (socklen_t) sizeof(struct sockaddr_in);
 
-
-                        if (recvfrom(sockfd, &ack_rec, sizeof(segment_t), 0,
-                                     (struct sockaddr*)&server, (socklen_t *) sizeof(struct sockaddr_in)) < 0){
+                        if (recvfrom(sockfd, &ack_rec, seg_size, 0,
+                                                             (struct sockaddr*) server, &addr_len) < 0){
                             printf("Couldn't receive\n");
                             return -1;
                         } else{
                             printf("Received ACK");
-                            if (ack_rec.checksum == cs) {
+                            if (ack_rec.sq == sq) {
                                 sending = false;
+                                sq++;
                             }
                         }
 
 
                     }
+
 
                 }
 
