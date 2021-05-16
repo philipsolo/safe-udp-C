@@ -16,13 +16,20 @@
  *      exit_cerr
  */
 
-/* 
- * is_corrupted - returns true with the given probability 
- * 
- * The result can be passed to the checksum function to "corrupt" a 
- * checksum with the given probability to simulate network errors in 
- * file transfer 
+/*
+ * is_corrupted - returns true with the given probability
+ *
+ * The result can be passed to the checksum function to "corrupt" a
+ * checksum with the given probability to simulate network errors in
+ * file transfer
  */
+
+static bool is_corrupted(float prob) {
+    float r = (float) rand();
+    float max = (float) RAND_MAX;
+
+    return (r / max) <= prob;
+}
 
 /* print client information messge to stdout */
 void print_cmsg(char *msg) {
@@ -68,8 +75,6 @@ int create_udp_socket(struct sockaddr_in *server, char *server_addr, int port) {
     server->sin_port = htons(port);
 
 
-    errno = ENOSYS;
-
     return sockfd;
 }
 
@@ -89,7 +94,9 @@ bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
 
     metadata_t *file_meta = (metadata_t *) malloc(sizeof(metadata_t));
     file_meta->size = file_size;
-    strcpy(file_meta->name, output_file);
+
+
+    memcpy(file_meta->name, output_file, FILE_NAME_SIZE);
 
     size_t bytes_sent = sendto(sockfd, file_meta, sizeof(metadata_t), 0,
                                (struct sockaddr *) server, sizeof(struct sockaddr_in));
@@ -122,6 +129,7 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
                         size_t bytes_to_read) {
 
     char payload[PAYLOAD_SIZE];
+    memset(payload, 0x00, PAYLOAD_SIZE);
     char buff[bytes_to_read];
     struct segment msg_payload;
     int total_sent = 0;
@@ -137,14 +145,10 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
             if (i == bytes_to_read ) {
                 file_end = true;
             }
-
             payload[pay_count] = buff[i];
 
-
             if (file_end || PAYLOAD_SIZE - 2 == pay_count) {
-
-                payload[pay_count+1] = '\0';
-
+                print_cmsg("PREPPING PAYLOAD");
                 memset(msg_payload.payload, 0x00, PAYLOAD_SIZE);
                 memcpy(msg_payload.payload, &payload, pay_count+1);
 
@@ -161,7 +165,7 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
                 size_t seg_size = sizeof(segment_t);
 
                 while (sending) {
-
+                    print_cmsg("SENDING PAYLOAD");
 
                     ssize_t payload_bytes = sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
                                                    (struct sockaddr *) server, sizeof(struct sockaddr_in));
@@ -177,33 +181,35 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
                     print_sep();
                     print_sep();
 
-
                     memset(&ack_rec, 0, seg_size);
                     socklen_t addr_len = (socklen_t) sizeof(struct sockaddr_in);
 
                     ssize_t ack_bytes = recvfrom(sockfd, &ack_rec, seg_size, 0,
                                                  (struct sockaddr *) server, &addr_len);
-
                     if (ack_bytes < 0) {
                         close(sockfd);
                         exit_cerr(__LINE__, "ACK Receive Failure");
                     } else if (!ack_bytes) {
                         errno = ENOMSG;
+                        close(sockfd);
                         exit_cerr(__LINE__, "Ending connection - no ACK received");
                     } else {
                         print_cmsg("ACK received successfully");
                         sending = false;
-                        memset(payload, 0, sizeof payload);
+                        memset(payload, 0x00, PAYLOAD_SIZE);
                         sq++;
                     }
-
                 }
-
 
             } else pay_count++;
 
         }
+    } else {
+        errno = ENODATA;
+        close(sockfd);
+        exit_cerr(__LINE__, "Failed to read file");
     }
+    close(sockfd);
     return total_sent;
 }
 
@@ -219,12 +225,120 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
  */
 size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
                               size_t bytes_to_read, float loss_prob) {
-    /* Replace the following with your function implementation */
-    errno = ENOSYS;
-    exit_cerr(__LINE__, "send_file_with_timeout is not implemented");
+    char payload[PAYLOAD_SIZE];
+    checksum(payload,loss_prob);
+    memset(payload, 0x00, PAYLOAD_SIZE);
+    char buff[bytes_to_read];
+    struct segment msg_payload;
+    int total_sent = 0;
+    segment_t ack_rec;
+    bool file_end = false;
 
-    return 0;
+    bool corrupt = is_corrupted(loss_prob);
+
+    if (read(infd, buff, bytes_to_read) > 0) {
+        int pay_count = 0;
+        int sq = 0;
+
+        for (int i = 0; i <= bytes_to_read; ++i) {
+
+            if (i == bytes_to_read ) {
+                file_end = true;
+            }
+            payload[pay_count] = buff[i];
+
+            if (file_end || PAYLOAD_SIZE - 2 == pay_count) {
+                print_cmsg("PREPPING PAYLOAD");
+                memset(msg_payload.payload, 0x00, PAYLOAD_SIZE);
+                memcpy(msg_payload.payload, &payload, pay_count+1);
+
+                msg_payload.last = file_end;
+                msg_payload.payload_bytes = pay_count;
+                msg_payload.sq = sq;
+
+                total_sent += pay_count;
+                pay_count = 0;
+
+                bool sending = true;
+                size_t seg_size = sizeof(segment_t);
+
+                while (sending) {
+                    print_cmsg("SENDING PAYLOAD");
+
+                    int cs = checksum(msg_payload.payload, corrupt);
+                    msg_payload.checksum = cs;
+
+                    ssize_t payload_bytes = sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
+                                                   (struct sockaddr *) server, sizeof(struct sockaddr_in));
+
+                    if (payload_bytes < 0) {
+                        exit_cerr(__LINE__, "Sending Payload error");
+                    } else if (!payload_bytes) {
+                        exit_cerr(__LINE__, "Ending Connection");
+
+                    } else {
+                        printf(">>>> CLIENT: PAYLOAD SENT SUCCESSFULLY <<<<\n");
+                    }
+                    print_sep();
+                    print_sep();
+
+                    memset(&ack_rec, 0, seg_size);
+                    socklen_t addr_len = (socklen_t) sizeof(struct sockaddr_in);
+
+
+                    struct timeval tv;
+                    tv.tv_sec = 5;
+                    tv.tv_usec = 0;
+                    if (setsockopt(sockfd,SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+                        printf("TIMEOUT SET");
+                    }
+
+                    ssize_t ack_bytes = recvfrom(sockfd, &ack_rec, seg_size, 0,
+                                                 (struct sockaddr *) server, &addr_len);
+
+                    if (ack_bytes < 0) {
+                        print_cmsg("TIMEOUT reached resending ACK");
+                        int cs_time = checksum(msg_payload.payload, false);
+                        msg_payload.checksum = cs_time;
+                        ssize_t timeout_payload = sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
+                                                       (struct sockaddr *) server, sizeof(struct sockaddr_in));
+                        if (timeout_payload < 0) {
+                            exit_cerr(__LINE__, "Sending Payload error");
+                        } else if (!timeout_payload) {
+                            exit_cerr(__LINE__, "Ending Connection");
+
+                        } else {
+                            sending = false;
+                            printf(">>>> CLIENT: 'TIMEOUT' PAYLOAD SENT SUCCESSFULLY <<<<\n");
+                        }
+
+                    } else if (!ack_bytes) {
+                        errno = ENOMSG;
+                        close(sockfd);
+                        exit_cerr(__LINE__, "Ending connection - no ACK received");
+                    } else {
+                        print_cmsg("ACK received successfully");
+                        if (ack_rec.checksum == cs){
+                            print_cmsg("Received ACK equals Sent CONTINUING");
+                            memset(payload, 0x00, PAYLOAD_SIZE);
+                            sending = false;
+                            sq++;
+                        } else{
+
+                        }
+                    }
+                }
+
+            } else pay_count++;
+
+        }
+    } else {
+        errno = ENODATA;
+        close(sockfd);
+        exit_cerr(__LINE__, "Failed to read file");
+    }
+    close(sockfd);
+    return total_sent;
 }
-
 
 

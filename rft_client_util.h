@@ -1,5 +1,4 @@
 #ifndef _RFT_CLIENT_H
-#define _RFT_CLIENT_H
 #include <stdio.h>
 #include <stdbool.h>
 #include <netinet/in.h> // for sockaddr_in
