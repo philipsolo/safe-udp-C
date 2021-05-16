@@ -91,16 +91,21 @@ bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
     file_meta->size = file_size;
     strcpy(file_meta->name, output_file);
 
-    if (sendto(sockfd, file_meta, sizeof(metadata_t), 0,
-               (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
-        printf("Unable to send message\n");
+    size_t bytes_sent = sendto(sockfd, file_meta, sizeof(metadata_t), 0,
+                               (struct sockaddr *) server, sizeof(struct sockaddr_in));
+
+    if (bytes_sent < 0) {
+        exit_cerr(__LINE__, "Sending stream message error");
         return false;
+    } else if (!bytes_sent) {
+        print_cmsg("Ending connection");
+        return false;
+    } else {
+        free(file_meta);
+        printf("        >>>> Metadata Sent Successfully <<<<\n");
+        return true;
     }
 
-
-    errno = ENOSYS;
-    free(file_meta);
-    return true;
 }
 
 
@@ -118,86 +123,88 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
 
     char payload[PAYLOAD_SIZE];
     char buff[bytes_to_read];
-
     struct segment msg_payload;
+    int total_sent = 0;
     segment_t ack_rec;
     bool file_end = false;
 
     if (read(infd, buff, bytes_to_read) > 0) {
-        int i;
-        int size = 0;
+        int pay_count = 0;
         int sq = 0;
 
-        for (i = 0; i <= bytes_to_read; ++i) {
+        for (int i = 0; i <= bytes_to_read; ++i) {
 
-            if (i == bytes_to_read) {
+            if (i == bytes_to_read ) {
                 file_end = true;
             }
 
-            if (file_end || PAYLOAD_SIZE - 1 == size) {
-                if (size > 0) {
-                    payload[size] = '\0';
+            payload[pay_count] = buff[i];
 
 
-                    printf("%s", payload);
+            if (file_end || PAYLOAD_SIZE - 2 == pay_count) {
+
+                payload[pay_count+1] = '\0';
+
+                memset(msg_payload.payload, 0x00, PAYLOAD_SIZE);
+                memcpy(msg_payload.payload, &payload, pay_count+1);
+
+                int cs = checksum(msg_payload.payload, false);
+                msg_payload.checksum = cs;
+                msg_payload.last = file_end;
+                msg_payload.payload_bytes = pay_count;
+                msg_payload.sq = sq;
+
+                total_sent += pay_count;
+                pay_count = 0;
+
+                bool sending = true;
+                size_t seg_size = sizeof(segment_t);
+
+                while (sending) {
 
 
+                    ssize_t payload_bytes = sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
+                                                   (struct sockaddr *) server, sizeof(struct sockaddr_in));
 
-                    memset(msg_payload.payload, 0x00, size);
-                    memcpy(msg_payload.payload, &payload, PAYLOAD_SIZE);
+                    if (payload_bytes < 0) {
+                        exit_cerr(__LINE__, "Sending Payload error");
+                    } else if (!payload_bytes) {
+                        exit_cerr(__LINE__, "Ending Connection");
 
-                    int cs = checksum(msg_payload.payload, false);
-                    msg_payload.checksum = cs;
-                    msg_payload.last = file_end;
-                    msg_payload.payload_bytes = size;
-                    msg_payload.sq = sq;
-
-                    size = 0;
-
-                    bool sending = true;
-                    size_t seg_size = sizeof(segment_t);
-
-                    while (sending) {
-                        printf("%s\n", payload);
-
-                        if (sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
-                                   (struct sockaddr *) server, sizeof(struct sockaddr_in)) < 0) {
-                            printf("Unable to send message\n");
-                            return 0;
-                        }
-
-
-                        memset(&ack_rec, 0, seg_size);
-                        socklen_t addr_len = (socklen_t) sizeof(struct sockaddr_in);
-
-                        if (recvfrom(sockfd, &ack_rec, seg_size, 0,
-                                                             (struct sockaddr*) server, &addr_len) < 0){
-                            printf("Couldn't receive\n");
-                            return -1;
-                        } else{
-                            printf("Received ACK");
-                            if (ack_rec.sq == sq) {
-                                sending = false;
-                                sq++;
-                            }
-                        }
-
-
+                    } else {
+                        printf(">>>> CLIENT: PAYLOAD SENT SUCCESSFULLY <<<<\n");
                     }
+                    print_sep();
+                    print_sep();
 
+
+                    memset(&ack_rec, 0, seg_size);
+                    socklen_t addr_len = (socklen_t) sizeof(struct sockaddr_in);
+
+                    ssize_t ack_bytes = recvfrom(sockfd, &ack_rec, seg_size, 0,
+                                                 (struct sockaddr *) server, &addr_len);
+
+                    if (ack_bytes < 0) {
+                        close(sockfd);
+                        exit_cerr(__LINE__, "ACK Receive Failure");
+                    } else if (!ack_bytes) {
+                        errno = ENOMSG;
+                        exit_cerr(__LINE__, "Ending connection - no ACK received");
+                    } else {
+                        print_cmsg("ACK received successfully");
+                        sending = false;
+                        memset(payload, 0, sizeof payload);
+                        sq++;
+                    }
 
                 }
 
-            }
-            payload[i] = buff[i];
-            size++;
+
+            } else pay_count++;
 
         }
     }
-    printf("%s\n", payload);
-
-
-    return bytes_to_read;
+    return total_sent;
 }
 
 

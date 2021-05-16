@@ -133,6 +133,10 @@ int main(int argc,char *argv[]) {
     switch (tmode) {
         case NM_TFR_MODE:
             bytes = send_file_normal(sockfd, &server, infd, fsize);
+            snprintf(inf_msg_buf, INF_MSG_SIZE,
+                     "%zu bytes",
+                     bytes);
+            print_cmsg(inf_msg_buf);
             break;
         case WT_TFR_MODE:
             bytes = send_file_with_timeout(sockfd, &server, infd, fsize,
@@ -142,7 +146,7 @@ int main(int argc,char *argv[]) {
             errno = EINVAL;
             exit_cerr(__LINE__, "Unknown transfer mode");
     }
-    
+
     exit_success(inf_msg_buf, fsize, input_file, bytes, infd, sockfd);
 } 
 

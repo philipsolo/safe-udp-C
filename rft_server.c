@@ -127,6 +127,7 @@ int main(int argc,char *argv[]) {
     
     struct stat stat_buf;
     stat(file_inf.name, &stat_buf);
+
     char inf_msg_buf[INF_MSG_SIZE];
     snprintf(inf_msg_buf, INF_MSG_SIZE, "%ld bytes written to file %s",
         (long) stat_buf.st_size, file_inf.name);
