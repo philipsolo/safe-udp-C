@@ -6,7 +6,6 @@
 #include "rft_util.h"
 #include "rft_client_util.h"
 
-
 /* 
  * UTILITY FUNCTIONS PROVIDED FOR YOU 
  * Do NOT edit the following functions:
@@ -47,7 +46,6 @@ void exit_cerr(int line, char *msg) {
     exit(EXIT_FAILURE);
 }
 
-
 /*
  * FUNCTIONS THAT YOU HAVE TO IMPLEMENT
  */
@@ -74,6 +72,7 @@ int create_udp_socket(struct sockaddr_in *server, char *server_addr, int port) {
     server->sin_port = htons(port);
     print_cmsg("Socket created");
     return sockfd;
+
 }
 
 /*
@@ -97,14 +96,13 @@ bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
 
     size_t bytes_sent = sendto(sockfd, file_meta, sizeof(metadata_t), 0,
                                (struct sockaddr *) server, sizeof(struct sockaddr_in));
-
     if (bytes_sent < 0) {
         close(sockfd);
         exit_cerr(__LINE__, "Sending stream message error");
         return false;
     } else if (!bytes_sent) {
         close(sockfd);
-        print_cerr(__LINE__,"Ending connection");
+        print_cerr(__LINE__, "Ending connection");
         return false;
     } else {
         free(file_meta);
@@ -178,12 +176,14 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
                                                    (struct sockaddr *) server, addr_len);
 
                     if (payload_bytes < 0) {
+                        close(infd);
+                        close(sockfd);
                         exit_cerr(__LINE__, "Sending Payload error");
                     } else if (!payload_bytes) {
-                        exit_cerr(__LINE__, "Ending Connection");
+                        print_cmsg("Ending Connection");
+                        sending = false;
 
                     } else {
-                        print_cmsg(">>>>        CLIENT: PAYLOAD SENT SUCCESSFULLY        <<<<");
                         snprintf(inf_msg_buf, INF_MSG_SIZE, "Sent payload: \n%s", msg_payload.payload);
                         print_cmsg(inf_msg_buf);
                     }
@@ -196,10 +196,12 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
                     ssize_t ack_bytes = recvfrom(sockfd, &ack_rec, seg_size, 0,
                                                  (struct sockaddr *) server, &addr_len);
                     if (ack_bytes < 0) {
+                        close(infd);
                         close(sockfd);
                         exit_cerr(__LINE__, "ACK Receive Failure");
                     } else if (!ack_bytes) {
                         errno = ENOMSG;
+                        close(infd);
                         close(sockfd);
                         exit_cerr(__LINE__, "Ending connection - no ACK received");
                     } else {
@@ -220,9 +222,11 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
         }
     } else {
         errno = ENODATA;
+        close(infd);
         close(sockfd);
         exit_cerr(__LINE__, "Failed to read file");
     }
+    close(infd);
     close(sockfd);
     return total_sent;
 }
@@ -297,9 +301,12 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
                                                    (struct sockaddr *) server, addr_len);
 
                     if (payload_bytes < 0) {
+                        close(infd);
+                        close(sockfd);
                         exit_cerr(__LINE__, "Sending Payload error");
                     } else if (!payload_bytes) {
-                        exit_cerr(__LINE__, "Ending Connection");
+                        sending = false;
+                        print_cmsg("Ending Connection");
 
                     } else {
                         snprintf(inf_msg_buf, INF_MSG_SIZE, "Sent payload: \n%s", msg_payload.payload);
@@ -312,6 +319,7 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
 
                     if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
                         close(sockfd);
+                        close(infd);
                         exit_cerr(__LINE__, "Error Setting timeout");
                     }
                     print_cmsg("Waiting for an ack");
@@ -321,10 +329,10 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
                     if (ack_bytes < 0) {
                         print_cmsg("TIMEOUT reached resending ACK with new cs");
 
-
                     } else if (!ack_bytes) {
                         errno = ENOMSG;
                         close(sockfd);
+                        close(infd);
                         exit_cerr(__LINE__, "Ending connection - no ACK received");
                     } else {
                         snprintf(inf_msg_buf, INF_MSG_SIZE, "ACK with sq: %d Received", ack_rec.sq);
@@ -346,12 +354,14 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
         }
     } else {
         errno = ENODATA;
+        close(infd);
         close(sockfd);
         exit_cerr(__LINE__, "Failed to read file");
     }
     snprintf(inf_msg_buf, INF_MSG_SIZE, "Total segments sent: %d", sq);
     print_cmsg(inf_msg_buf);
     close(sockfd);
+    close(infd);
     return total_sent;
 }
 
