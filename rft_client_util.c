@@ -142,7 +142,7 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
 
         for (int i = 0; i <= bytes_to_read; ++i) {
 
-            if (i == bytes_to_read ) {
+            if (i == bytes_to_read) {
                 file_end = true;
             }
             payload[pay_count] = buff[i];
@@ -150,7 +150,7 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
             if (file_end || PAYLOAD_SIZE - 2 == pay_count) {
                 print_cmsg("PREPPING PAYLOAD");
                 memset(msg_payload.payload, 0x00, PAYLOAD_SIZE);
-                memcpy(msg_payload.payload, &payload, pay_count+1);
+                memcpy(msg_payload.payload, &payload, pay_count + 1);
 
                 int cs = checksum(msg_payload.payload, false);
                 msg_payload.checksum = cs;
@@ -226,14 +226,13 @@ size_t send_file_normal(int sockfd, struct sockaddr_in *server, int infd,
 size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
                               size_t bytes_to_read, float loss_prob) {
     char payload[PAYLOAD_SIZE];
-    checksum(payload,loss_prob);
-    memset(payload, 0x00, PAYLOAD_SIZE);
+    checksum(payload, loss_prob);
+    memset(payload, '\n', PAYLOAD_SIZE);
     char buff[bytes_to_read];
     struct segment msg_payload;
     int total_sent = 0;
     segment_t ack_rec;
     bool file_end = false;
-
     bool corrupt = is_corrupted(loss_prob);
 
     if (read(infd, buff, bytes_to_read) > 0) {
@@ -242,7 +241,7 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
 
         for (int i = 0; i <= bytes_to_read; ++i) {
 
-            if (i == bytes_to_read ) {
+            if (i == bytes_to_read) {
                 file_end = true;
             }
             payload[pay_count] = buff[i];
@@ -250,8 +249,10 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
             if (file_end || PAYLOAD_SIZE - 2 == pay_count) {
                 print_cmsg("PREPPING PAYLOAD");
                 memset(msg_payload.payload, 0x00, PAYLOAD_SIZE);
-                memcpy(msg_payload.payload, &payload, pay_count+1);
+                memcpy(msg_payload.payload, &payload, pay_count + 1);
 
+                int cs = checksum(msg_payload.payload, corrupt);
+                msg_payload.checksum = cs;
                 msg_payload.last = file_end;
                 msg_payload.payload_bytes = pay_count;
                 msg_payload.sq = sq;
@@ -265,8 +266,6 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
                 while (sending) {
                     print_cmsg("SENDING PAYLOAD");
 
-                    int cs = checksum(msg_payload.payload, corrupt);
-                    msg_payload.checksum = cs;
 
                     ssize_t payload_bytes = sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
                                                    (struct sockaddr *) server, sizeof(struct sockaddr_in));
@@ -289,28 +288,18 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
                     struct timeval tv;
                     tv.tv_sec = 5;
                     tv.tv_usec = 0;
-                    if (setsockopt(sockfd,SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-                        printf("TIMEOUT SET");
+                    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+                        close(sockfd);
+                        exit_cerr(__LINE__, "Error Setting timeout");
                     }
 
                     ssize_t ack_bytes = recvfrom(sockfd, &ack_rec, seg_size, 0,
                                                  (struct sockaddr *) server, &addr_len);
 
                     if (ack_bytes < 0) {
-                        print_cmsg("TIMEOUT reached resending ACK");
+                        print_cmsg("TIMEOUT reached resending ACK with new cs");
                         int cs_time = checksum(msg_payload.payload, false);
                         msg_payload.checksum = cs_time;
-                        ssize_t timeout_payload = sendto(sockfd, &msg_payload, sizeof(struct segment), 0,
-                                                       (struct sockaddr *) server, sizeof(struct sockaddr_in));
-                        if (timeout_payload < 0) {
-                            exit_cerr(__LINE__, "Sending Payload error");
-                        } else if (!timeout_payload) {
-                            exit_cerr(__LINE__, "Ending Connection");
-
-                        } else {
-                            sending = false;
-                            printf(">>>> CLIENT: 'TIMEOUT' PAYLOAD SENT SUCCESSFULLY <<<<\n");
-                        }
 
                     } else if (!ack_bytes) {
                         errno = ENOMSG;
@@ -318,13 +307,11 @@ size_t send_file_with_timeout(int sockfd, struct sockaddr_in *server, int infd,
                         exit_cerr(__LINE__, "Ending connection - no ACK received");
                     } else {
                         print_cmsg("ACK received successfully");
-                        if (ack_rec.checksum == cs){
-                            print_cmsg("Received ACK equals Sent CONTINUING");
+                        if (ack_rec.sq == sq) {
+                            print_cmsg("Received ACK sq correct");
                             memset(payload, 0x00, PAYLOAD_SIZE);
                             sending = false;
                             sq++;
-                        } else{
-
                         }
                     }
                 }
