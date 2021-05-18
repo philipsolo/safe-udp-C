@@ -85,24 +85,20 @@ int create_udp_socket(struct sockaddr_in *server, char *server_addr, int port) {
  */
 bool send_metadata(int sockfd, struct sockaddr_in *server, off_t file_size,
                    char *output_file) {
-    /* Replace the following with your function implementation */
-
 
     metadata_t *file_meta = (metadata_t *) malloc(sizeof(metadata_t));
     file_meta->size = file_size;
-
-
     memcpy(file_meta->name, output_file, FILE_NAME_SIZE);
 
     size_t bytes_sent = sendto(sockfd, file_meta, sizeof(metadata_t), 0,
                                (struct sockaddr *) server, sizeof(struct sockaddr_in));
     if (bytes_sent < 0) {
         close(sockfd);
-        exit_cerr(__LINE__, "Sending stream message error");
+        free(file_meta);
         return false;
     } else if (!bytes_sent) {
         close(sockfd);
-        print_cerr(__LINE__, "Ending connection");
+        free(file_meta);
         return false;
     } else {
         free(file_meta);
